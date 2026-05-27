@@ -459,6 +459,10 @@ class UIStore {
     this.vitalsOpen = !this.vitalsOpen;
   }
 
+  closeVitals() {
+    this.vitalsOpen = false;
+  }
+
   toggleSignalPanel() {
     this.signalPanelOpen = !this.signalPanelOpen;
   }
