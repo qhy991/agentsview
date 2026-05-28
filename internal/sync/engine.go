@@ -1024,7 +1024,7 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
-	// Antigravity CLI: <root>/conversations|implicit/<uuid>.pb
+	// Antigravity CLI: <root>/conversations|implicit/<uuid>.pb (+ trajectory.json sidecars)
 	for _, agDir := range e.agentDirs[parser.AgentAntigravityCLI] {
 		if agDir == "" {
 			continue
@@ -1037,15 +1037,25 @@ func (e *Engine) classifyOnePath(
 				continue
 			}
 			name := parts[1]
-			if !strings.HasSuffix(name, ".pb") {
+			var pbPath string
+			var id string
+			if strings.HasSuffix(name, ".pb") {
+				pbPath = path
+				id = strings.TrimSuffix(name, ".pb")
+			} else if strings.HasSuffix(name, ".trajectory.json") {
+				pbPath = strings.TrimSuffix(path, ".trajectory.json") + ".pb"
+				id = strings.TrimSuffix(name, ".trajectory.json")
+			} else {
 				continue
 			}
-			id := strings.TrimSuffix(name, ".pb")
 			if !parser.IsValidSessionID(id) {
 				continue
 			}
+			if _, err := os.Stat(pbPath); err != nil {
+				continue
+			}
 			return parser.DiscoveredFile{
-				Path:  path,
+				Path:  pbPath,
 				Agent: parser.AgentAntigravityCLI,
 			}, true
 		}
@@ -2190,6 +2200,13 @@ func discoveredFileMtime(
 			return parser.OpenCodeSourceMtime(file.Path)
 		}
 	}
+	if file.Agent == parser.AgentAntigravityCLI {
+		info, err := parser.AntigravityCLIFileInfo(file.Path)
+		if err != nil {
+			return 0, err
+		}
+		return info.ModTime().UnixNano(), nil
+	}
 
 	info, err := os.Stat(file.Path)
 	if err != nil {
@@ -2744,14 +2761,20 @@ func (e *Engine) processFile(
 	file parser.DiscoveredFile,
 ) processResult {
 
-	statPath := file.Path
-	if dbPath, _, ok := parser.ParseKiroSQLiteVirtualPath(file.Path); ok {
-		statPath = dbPath
+	var info os.FileInfo
+	var err error
+	if file.Agent == parser.AgentAntigravityCLI {
+		info, err = parser.AntigravityCLIFileInfo(file.Path)
+	} else {
+		statPath := file.Path
+		if dbPath, _, ok := parser.ParseKiroSQLiteVirtualPath(file.Path); ok {
+			statPath = dbPath
+		}
+		info, err = os.Stat(statPath)
 	}
-	info, err := os.Stat(statPath)
 	if err != nil {
 		return processResult{
-			err: fmt.Errorf("stat %s: %w", statPath, err),
+			err: fmt.Errorf("stat %s: %w", file.Path, err),
 		}
 	}
 
@@ -4440,7 +4463,8 @@ func (e *Engine) writeBatch(
 		}
 
 		replaceMessages := forceReplace || pw.forceReplace ||
-			stale || pw.sess.Agent == parser.AgentOpenCode
+			stale || pw.sess.Agent == parser.AgentOpenCode ||
+			pw.sess.Agent == parser.AgentAntigravityCLI
 
 		update, findings := computeSignalsAndSecrets(s, msgs)
 
@@ -4547,7 +4571,8 @@ func (e *Engine) writeBatchBulk(
 			continue
 		}
 		replaceMessages := forceReplace || pw.forceReplace ||
-			pw.sess.Agent == parser.AgentOpenCode
+			pw.sess.Agent == parser.AgentOpenCode ||
+			pw.sess.Agent == parser.AgentAntigravityCLI
 		tScan := time.Now()
 		update, findings := computeSignalsAndSecrets(s, msgs)
 		e.phaseStats.ScanNanos.Add(int64(time.Since(tScan)))
@@ -5298,6 +5323,13 @@ func (e *Engine) SourceMtime(sessionID string) int64 {
 			}
 			return mtime
 		}
+	}
+	if def.Type == parser.AgentAntigravityCLI {
+		info, err := parser.AntigravityCLIFileInfo(path)
+		if err != nil {
+			return 0
+		}
+		return info.ModTime().UnixNano()
 	}
 
 	info, err := os.Stat(path)
