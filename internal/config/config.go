@@ -85,6 +85,15 @@ type CustomModelRate struct {
 	CacheRead     float64 `json:"cache_read,omitempty" toml:"cache_read"`
 }
 
+// RemoteHost describes one SSH target for config-driven
+// `agentsview sync` fan-out. Host is required; User and Port are
+// optional (Port 0 means the ssh default of 22).
+type RemoteHost struct {
+	Host string `toml:"host" json:"host"`
+	User string `toml:"user,omitempty" json:"user,omitempty"`
+	Port int    `toml:"port,omitempty" json:"port,omitempty"`
+}
+
 // Config holds all application configuration.
 type Config struct {
 	Host                 string                 `json:"host" toml:"host"`
@@ -128,6 +137,12 @@ type Config struct {
 
 	CustomModelPricing map[string]CustomModelRate `json:"custom_model_pricing,omitempty" toml:"custom_model_pricing"`
 
+	// RemoteHosts is the config-file list of SSH targets that
+	// `agentsview sync` (with no --host) syncs after the local
+	// pass. CLI/config-file only; never serialized to the
+	// settings API, so there is no web-UI editing of this list.
+	RemoteHosts []RemoteHost `json:"-" toml:"-"`
+
 	// HostExplicit is true when the user passed --host on the CLI.
 	// Used to prevent auto-bind to 0.0.0.0 when the user
 	// explicitly requested a specific host.
@@ -156,6 +171,46 @@ func (c *Config) IsUserConfigured(
 	agent parser.AgentType,
 ) bool {
 	return c.agentDirSource[agent] != dirDefault
+}
+
+// ValidateRemoteHosts checks the configured remote_hosts entries
+// for semantic errors: a non-empty host and a port within 0..65535
+// (0 means the ssh default). It checks the trimmed values that
+// loadFile already normalized, so what is validated here is exactly
+// what is passed to ssh. Returns an aggregated error naming every
+// offending entry, or nil when all entries are valid.
+func (c Config) ValidateRemoteHosts() error {
+	var problems []string
+	seen := make(map[string]int, len(c.RemoteHosts))
+	for i, h := range c.RemoteHosts {
+		if h.Host == "" {
+			problems = append(problems,
+				fmt.Sprintf("entry %d: host is required", i+1))
+		}
+		if h.Port < 0 || h.Port > 65535 {
+			problems = append(problems,
+				fmt.Sprintf("entry %d (%q): invalid port %d",
+					i+1, h.Host, h.Port))
+		}
+		// Remote sync namespaces sessions and the skip cache by
+		// host alone (see ssh.RemoteSync), so two entries sharing a
+		// host collide regardless of user/port. Reject duplicates
+		// rather than silently share or overwrite cached state.
+		if h.Host != "" {
+			if first, ok := seen[h.Host]; ok {
+				problems = append(problems,
+					fmt.Sprintf("entry %d: duplicate host %q (already at entry %d)",
+						i+1, h.Host, first))
+			} else {
+				seen[h.Host] = i + 1
+			}
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("remote_hosts: %s",
+			strings.Join(problems, "; "))
+	}
+	return nil
 }
 
 // Default returns a Config with default values.
@@ -375,6 +430,7 @@ func (c *Config) loadFile() error {
 		Agent                          map[string]AgentConfig     `toml:"agent"`
 		EventsCoalesceInterval         time.Duration              `toml:"events_coalesce_interval"`
 		CustomModelPricing             map[string]CustomModelRate `toml:"custom_model_pricing"`
+		RemoteHosts                    []RemoteHost               `toml:"remote_hosts"`
 	}
 	meta, err := toml.DecodeFile(path, &file)
 	if err != nil {
@@ -456,6 +512,17 @@ func (c *Config) loadFile() error {
 	}
 	if len(file.CustomModelPricing) > 0 {
 		c.CustomModelPricing = file.CustomModelPricing
+	}
+	if len(file.RemoteHosts) > 0 {
+		hosts := make([]RemoteHost, len(file.RemoteHosts))
+		for i, h := range file.RemoteHosts {
+			hosts[i] = RemoteHost{
+				Host: strings.TrimSpace(h.Host),
+				User: strings.TrimSpace(h.User),
+				Port: h.Port,
+			}
+		}
+		c.RemoteHosts = hosts
 	}
 
 	// Parse config-file dir arrays for agents that have a

@@ -124,8 +124,18 @@ func newOpenAPICommand() *cobra.Command {
 func newSyncCommand() *cobra.Command {
 	var cfg SyncConfig
 	cmd := &cobra.Command{
-		Use:          "sync",
-		Short:        "Sync session data without serving",
+		Use:   "sync",
+		Short: "Sync session data without serving",
+		Long: "Sync session data into the local database without starting the\n" +
+			"HTTP server.\n\n" +
+			"With no --host, sync runs the local sync and then fans out to\n" +
+			"every host listed in the [[remote_hosts]] array in config.toml,\n" +
+			"syncing each over SSH. A failure on one configured host is logged\n" +
+			"and the run continues; the command exits non-zero if any\n" +
+			"configured host failed.\n\n" +
+			"With --host, sync ignores remote_hosts and syncs only that host.\n\n" +
+			"Remote sync uses your existing SSH configuration and requires\n" +
+			"key-based (passwordless) auth; it never prompts for a password.",
 		GroupID:      groupCore,
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
@@ -506,6 +516,16 @@ func writeRootHelp(w io.Writer, root *cobra.Command) {
 	fmt.Fprintln(w, "  codex_sessions_dirs = [\"/codex/a\", \"/codex/b\"]")
 	fmt.Fprintln(w, "  When set, these override default directory. Environment variables")
 	fmt.Fprintln(w, "  override config file arrays.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Remote hosts:")
+	fmt.Fprintln(w, "  Add a [[remote_hosts]] array to ~/.agentsview/config.toml so that")
+	fmt.Fprintln(w, "  \"agentsview sync\" (no --host) also syncs each host over SSH:")
+	fmt.Fprintln(w, "  [[remote_hosts]]")
+	fmt.Fprintln(w, "  host = \"devbox1\"")
+	fmt.Fprintln(w, "  user = \"jesse\"  # optional")
+	fmt.Fprintln(w, "  port = 22        # optional")
+	fmt.Fprintln(w, "  Each host must be unique.")
+	fmt.Fprintln(w, "  Requires key-based (passwordless) SSH to each host.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Data stored in ~/.agentsview/ by default.")
 }

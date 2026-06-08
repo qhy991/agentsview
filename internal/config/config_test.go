@@ -945,3 +945,64 @@ func TestLoadFile_CustomModelPricing(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFile_RemoteHosts(t *testing.T) {
+	dir := setupTestEnv(t)
+	path := filepath.Join(dir, configFileName)
+	data := []byte(`[[remote_hosts]]
+host = "devbox1"
+user = "jesse"
+port = 22
+
+[[remote_hosts]]
+host = "  laptop2  "
+`)
+	require.NoError(t, os.WriteFile(path, data, 0o600), "write config")
+
+	cfg, err := LoadMinimal()
+	require.NoError(t, err)
+
+	require.Len(t, cfg.RemoteHosts, 2)
+	assert.Equal(t, RemoteHost{Host: "devbox1", User: "jesse", Port: 22}, cfg.RemoteHosts[0])
+	// host is trimmed at load so validation and SSH see the same value
+	assert.Equal(t, RemoteHost{Host: "laptop2"}, cfg.RemoteHosts[1])
+}
+
+func TestLoadFile_RemoteHostsAbsentIsNil(t *testing.T) {
+	dir := setupTestEnv(t)
+	writeConfig(t, dir, map[string]any{"public_url": "http://example.com"})
+
+	cfg, err := LoadMinimal()
+	require.NoError(t, err)
+	assert.Nil(t, cfg.RemoteHosts)
+}
+
+func TestValidateRemoteHosts(t *testing.T) {
+	tests := []struct {
+		name    string
+		hosts   []RemoteHost
+		wantErr []string // substrings expected in error; empty => no error
+	}{
+		{"valid", []RemoteHost{{Host: "a"}, {Host: "b", Port: 22}, {Host: "c", Port: 0}}, nil},
+		{"empty host", []RemoteHost{{Host: ""}}, []string{"host is required"}},
+		{"negative port", []RemoteHost{{Host: "a", Port: -1}}, []string{"invalid port"}},
+		{"port too large", []RemoteHost{{Host: "a", Port: 70000}}, []string{"invalid port"}},
+		{"aggregates both", []RemoteHost{{Host: ""}, {Host: "b", Port: 99999}}, []string{"host is required", "invalid port"}},
+		{"duplicate host", []RemoteHost{{Host: "a"}, {Host: "a"}}, []string{"duplicate host"}},
+		{"duplicate host different user or port", []RemoteHost{{Host: "box", User: "alice"}, {Host: "box", User: "bob", Port: 2222}}, []string{"duplicate host"}},
+		{"none configured", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Config{RemoteHosts: tt.hosts}.ValidateRemoteHosts()
+			if len(tt.wantErr) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tt.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+		})
+	}
+}
