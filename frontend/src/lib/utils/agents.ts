@@ -51,6 +51,11 @@ export const KNOWN_AGENTS: readonly AgentMeta[] = [
     color: "var(--accent-violet)",
     label: "Antigravity CLI",
   },
+  {
+    name: "kernelowl",
+    color: "var(--accent-coral)",
+    label: "KernelOwl",
+  },
 ];
 
 const agentColorMap = new Map(

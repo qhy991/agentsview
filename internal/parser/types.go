@@ -41,6 +41,7 @@ const (
 	AgentAntigravity    AgentType = "antigravity"
 	AgentAntigravityCLI AgentType = "antigravity-cli"
 	AgentZed            AgentType = "zed"
+	AgentKernelOwl      AgentType = "kernelowl"
 )
 
 // AgentDef describes a supported coding agent's filesystem
@@ -450,6 +451,22 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverAntigravityCLISessions,
 		FindSourceFunc: FindAntigravityCLISourceFile,
+	},
+	{
+		Type:        AgentKernelOwl,
+		DisplayName: "KernelOwl",
+		EnvVar:      "KERNELOWL_DIR",
+		ConfigKey:   "kernelowl_dirs",
+		DefaultDirs: []string{
+			"Documents/Infinity/Agent4Kernel/kernelowl",
+		},
+		IDPrefix: "kernelowl:",
+		// Sessions are folder-based under .kernelowl/experiments;
+		// watch that subtree rather than the whole repo.
+		WatchSubdirs:   []string{".kernelowl/experiments"},
+		FileBased:      true,
+		DiscoverFunc:   DiscoverKernelOwlSessions,
+		FindSourceFunc: FindKernelOwlSourceFile,
 	},
 }
 

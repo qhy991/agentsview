@@ -2459,6 +2459,15 @@ func discoveredFileMtime(
 		}
 		return commandCodeEffectiveInfo(file.Path, info).ModTime().UnixNano(), nil
 	}
+	if file.Agent == parser.AgentKernelOwl {
+		// Folder-based sessions: a single dir stat misses transcript
+		// and run changes, so use the composite experiment info.
+		info, err := parser.KernelOwlExperimentInfo(file.Path)
+		if err != nil {
+			return 0, err
+		}
+		return info.ModTime().UnixNano(), nil
+	}
 
 	info, err := os.Stat(file.Path)
 	if err != nil {
@@ -3082,6 +3091,10 @@ func (e *Engine) processFile(
 		// WAL-only commits and annotation updates do not touch
 		// the main .db, so skip checks need the composite stat.
 		info, err = parser.AntigravityFileInfo(file.Path)
+	case parser.AgentKernelOwl:
+		// Sessions are folders; composite stat covers transcript
+		// and run changes that a dir-only stat would miss.
+		info, err = parser.KernelOwlExperimentInfo(file.Path)
 	default:
 		statPath := file.Path
 		if dbPath, _, ok := parser.ParseKiroSQLiteVirtualPath(file.Path); ok {
@@ -3183,6 +3196,8 @@ func (e *Engine) processFile(
 		res = e.processAntigravity(file, info)
 	case parser.AgentAntigravityCLI:
 		res = e.processAntigravityCLI(file, info)
+	case parser.AgentKernelOwl:
+		res = e.processKernelOwl(file, info)
 	default:
 		res = processResult{
 			err: fmt.Errorf(
@@ -4392,6 +4407,36 @@ func (e *Engine) processHermes(
 			{Session: *sess, Messages: msgs},
 		},
 	}
+}
+
+// processKernelOwl parses a KernelOwl experiment directory into a
+// parent session plus one subagent session per run. info is the
+// composite experiment stat from KernelOwlExperimentInfo; stamping
+// it onto every result keeps path-keyed skip checks consistent with
+// the multi-result forceReplace path (same shape as processHermes).
+func (e *Engine) processKernelOwl(
+	file parser.DiscoveredFile, info os.FileInfo,
+) processResult {
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	results, err := parser.ParseKernelOwlExperiment(
+		file.Path, file.Project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if len(results) == 0 {
+		return processResult{}
+	}
+
+	for i := range results {
+		results[i].Session.File.Size = info.Size()
+		results[i].Session.File.Mtime = info.ModTime().UnixNano()
+	}
+
+	return processResult{results: results, forceReplace: true}
 }
 
 func (e *Engine) processWorkBuddy(

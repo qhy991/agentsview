@@ -281,6 +281,7 @@ func TestRegistryCompleteness(t *testing.T) {
 		AgentWarp,
 		AgentPositron,
 		AgentZed,
+		AgentKernelOwl,
 	}
 
 	registered := make(map[AgentType]bool)

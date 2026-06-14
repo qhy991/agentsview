@@ -24,7 +24,8 @@ export type AgentName =
   | "codex"
   | "copilot"
   | "gemini"
-  | "kiro";
+  | "kiro"
+  | "kernelowl";
 
 export interface GenerateInsightRequest {
   type: InsightType;
